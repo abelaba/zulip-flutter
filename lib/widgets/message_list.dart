@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_color_models/flutter_color_models.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../api/model/model.dart';
 import '../generated/l10n/zulip_localizations.dart';
@@ -188,7 +188,7 @@ abstract class MessageListPageState {
 class MessageListPage extends StatefulWidget {
   const MessageListPage({super.key, required this.initNarrow});
 
-  static Route<void> buildRoute({int? accountId, BuildContext? context,
+  static AccountRoute<void> buildRoute({int? accountId, BuildContext? context,
       required Narrow narrow}) {
     return MaterialAccountWidgetRoute(accountId: accountId, context: context,
       page: MessageListPage(initNarrow: narrow));
@@ -483,6 +483,7 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
 
   @override
   void onNewStore() { // TODO(#464) try to keep using old model until new one gets messages
+    model?.dispose();
     _initModel(PerAccountStoreWidget.of(context));
   }
 
@@ -502,8 +503,11 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
 
   void _modelChanged() {
     if (model!.narrow != widget.narrow) {
-      // A message move event occurred, where propagate mode is
-      // [PropagateMode.changeAll] or [PropagateMode.changeLater].
+      // Either:
+      // - A message move event occurred, where propagate mode is
+      //   [PropagateMode.changeAll] or [PropagateMode.changeLater]. Or:
+      // - We fetched a "with" / topic-permalink narrow, and the response
+      //   redirected us to the new location of the operand message ID.
       widget.onNarrowChanged(model!.narrow);
     }
     setState(() {
@@ -802,7 +806,7 @@ class _MarkAsReadWidgetState extends State<MarkAsReadWidget> {
   void _handlePress(BuildContext context) async {
     if (!context.mounted) return;
     setState(() => _loading = true);
-    await markNarrowAsRead(context, widget.narrow);
+    await ZulipAction.markNarrowAsRead(context, widget.narrow);
     setState(() => _loading = false);
   }
 
@@ -1179,7 +1183,6 @@ class DmRecipientHeader extends StatelessWidget {
         .sorted()
         .join(", "));
     } else {
-      // TODO pick string; web has glitchy "You and $yourname"
       title = zulipLocalizations.messageListGroupYouWithYourself;
     }
 
@@ -1387,6 +1390,17 @@ class MessageWithPossibleSender extends StatelessWidget {
       case MessageEditState.none:
     }
 
+    Widget? star;
+    if (message.flags.contains(MessageFlag.starred)) {
+      final starOffset = switch (Directionality.of(context)) {
+        TextDirection.ltr => -2.0,
+        TextDirection.rtl => 2.0,
+      };
+      star = Transform.translate(
+        offset: Offset(starOffset, 0),
+        child: Icon(ZulipIcons.star_filled, size: 16, color: designVariables.star));
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onLongPress: () => showMessageActionSheet(context: context, message: message),
@@ -1418,9 +1432,7 @@ class MessageWithPossibleSender extends StatelessWidget {
                           context, 0.05, baseFontSize: 12))),
                 ])),
               SizedBox(width: 16,
-                child: message.flags.contains(MessageFlag.starred)
-                  ? Icon(ZulipIcons.star_filled, size: 16, color: designVariables.star)
-                  : null),
+                child: star),
             ]),
         ])));
   }
